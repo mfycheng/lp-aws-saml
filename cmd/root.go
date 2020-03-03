@@ -1,31 +1,73 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/user"
+	"path/filepath"
+	"strings"
 	"syscall"
 
+	"github.com/BurntSushi/toml"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 	"github.com/springload/lp-aws-saml/lastpassaws"
 	cookiejar "github.com/vinhjaxt/persistent-cookiejar"
 	"golang.org/x/crypto/ssh/terminal"
 )
 
+type config struct {
+	Username string `toml:"username"`
+	SAMLConfigID string `toml:"saml_config_id"`
+	Profile string `toml:"profile_name"`
+	Duration int `toml:"duration"`
+	Quiet bool `toml:"bool"`
+}
+
+var (
+	quiet bool
+	configPath string
+)
+
+func getCanonicalPath(path string) string {
+	usr, _ := user.Current()
+	if path == "~" {
+		return usr.HomeDir
+	}
+	if strings.HasPrefix(path, "~/") {
+		return filepath.Join(usr.HomeDir, path[2:])
+	}
+
+	return path
+}
+func getConfig(profile string) (config, error) {
+	m := make(map[string]config)
+	if _, err := toml.DecodeFile(getCanonicalPath(configPath), &m); err != nil {
+		return config{}, err
+	}
+
+	if _, ok := m[profile]; !ok {
+		return config{}, errors.New("profile not configured")
+	}
+
+	return m[profile], nil
+}
+
 var rootCmd = &cobra.Command{
 	Use:   "lp-aws-saml",
 	Short: "Temporary Credentials for AWS CLI for LastPass SAML login",
 	Long:  "Get temporary AWS credentials when using LastPass as a SAML login for AWS",
-	Run: func(cmd *cobra.Command, args []string) {
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		conf, err := getConfig(args[0])
+		if err != nil {
+			return err
+		}
 
-		quiet := viper.GetBool("quiet")
-		samlConfigID := viper.GetString("saml_config_id")
-
-		username := viper.GetString("username")
 		if !quiet {
-			log.Println("Logging in with: ", username)
+			log.Println("Logging in with: ", conf.Username)
 		}
 
 		options := cookiejar.Options{
@@ -37,10 +79,9 @@ var rootCmd = &cobra.Command{
 		}
 
 		var assertion string
-		var err error
 		// Attempt to use stored cookies
 		for {
-			assertion, err = lastpassaws.SamlToken(session, username, samlConfigID)
+			assertion, err = lastpassaws.SamlToken(session, conf.Username, conf.SAMLConfigID)
 			if err != nil {
 				log.Fatalf("Can't get the saml: %s", err)
 			}
@@ -59,7 +100,7 @@ var rootCmd = &cobra.Command{
 			password := string(bytePassword)
 			otp := string(byteOtp)
 
-			if err := lastpassaws.Login(session, username, password, otp); err != nil {
+			if err := lastpassaws.Login(session, conf.Username, password, otp); err != nil {
 				log.Printf("Invalid Credentials: %s", err)
 			} else {
 				jar.Save()
@@ -69,30 +110,28 @@ var rootCmd = &cobra.Command{
 
 		roles := lastpassaws.SamlRoles(assertion)
 		if len(roles) == 0 {
-			fmt.Printf("No roles available for %s!\n", username)
-			os.Exit(1)
-			return
+			return fmt.Errorf("No roles available for %s!\n", conf.Username)
 		}
 		role := lastpassaws.PromptForRole(roles)
 
-		profileName := viper.GetString("profile_name")
-		duration := viper.GetInt("duration")
 
-		response, err := lastpassaws.AssumeAWSRole(assertion, role[0], role[1], duration)
+		response, err := lastpassaws.AssumeAWSRole(assertion, role[0], role[1], conf.Duration)
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(1)
 		}
-		lastpassaws.SetAWSProfile(profileName, response)
+		lastpassaws.SetAWSProfile(conf.Profile, response)
 
 		if !quiet {
-			fmt.Printf("A new AWS CLI profile '%s' has been added.\n", profileName)
+			fmt.Printf("A new AWS CLI profile '%s' has been added.\n", conf.Profile)
 			fmt.Println("You may now invoke the aws CLI tool as follows:")
 			fmt.Println()
-			fmt.Printf("    aws --profile %s [...] \n", profileName)
+			fmt.Printf("    aws --profile %s [...] \n", conf.Profile)
 			fmt.Println()
-			fmt.Printf("This token expires in %.2d hours.\n", (duration / 60 / 60))
+			fmt.Printf("This token expires in %.2d hours.\n", (conf.Duration / 60 / 60))
 		}
+
+		return nil
 	},
 }
 
@@ -107,32 +146,7 @@ func Execute(version string) {
 }
 
 func init() {
-	cobra.OnInitialize(initConfig)
-
-	// Here you will define your flags and configuration settings.
-	// Cobra supports persistent flags, which, if defined here,
-	// will be global for your application.
-
-	rootCmd.PersistentFlags().StringP("username", "u", "", "LastPass username")
-	rootCmd.PersistentFlags().StringP("saml_config_id", "s", "", "LastPass saml config ID")
-	rootCmd.PersistentFlags().StringP("profile_name", "p", "default", "AWS profile to set in ~/.aws/credentials")
-	rootCmd.PersistentFlags().IntP("duration", "d", 3600, "Duration (in seconds) for AWS credentials to be valid")
-	rootCmd.PersistentFlags().BoolP("quiet", "q", false, "Silence output unless error")
-
-	viper.BindPFlag("username", rootCmd.PersistentFlags().Lookup("username"))
-	viper.BindPFlag("saml_config_id", rootCmd.PersistentFlags().Lookup("saml_config_id"))
-	viper.BindPFlag("profile_name", rootCmd.PersistentFlags().Lookup("profile_name"))
-	viper.BindPFlag("duration", rootCmd.PersistentFlags().Lookup("duration"))
-	viper.BindPFlag("quiet", rootCmd.PersistentFlags().Lookup("quiet"))
+	rootCmd.Flags().BoolVar(&quiet, "quiet", true, "Don't output debug info")
+	rootCmd.Flags().StringVar(&configPath, "config", "~/.aws/lp_config.toml", "Config path")
 }
 
-func initConfig() {
-	viper.SetConfigName("lp_config")
-	viper.SetConfigType("toml")
-	viper.AddConfigPath(fmt.Sprintf("%s/.aws/", lastpassaws.HomeDir()))
-
-	if err := viper.ReadInConfig(); err != nil {
-		fmt.Println("Can't read config:", err)
-		os.Exit(1)
-	}
-}

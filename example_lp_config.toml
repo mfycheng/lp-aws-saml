@@ -1,5 +1,13 @@
+[default]
 username = "email@example.com"
 saml_config_id = "12345"
 profile_name = "default"
+duration = 7200
+quiet = true
+
+[otheraccount]
+username = "email2@example.com"
+saml_config_id = "54321"
+profile_name = "otheraccount"
 duration = 7200
 quiet = true

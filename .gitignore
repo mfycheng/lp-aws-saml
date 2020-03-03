@@ -3,3 +3,4 @@ lp-aws-saml
 *.log
 dist/
 vendor/
+.idea/
