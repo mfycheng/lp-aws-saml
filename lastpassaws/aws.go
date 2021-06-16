@@ -13,7 +13,6 @@ import (
 // AssumeAWSRole returns a response from assuming a role on AWS STS
 // and includes the required credentials
 func AssumeAWSRole(assertion, roleArn, principalArn string, duration int) (*sts.AssumeRoleWithSAMLOutput, error) {
-
 	input := sts.AssumeRoleWithSAMLInput{
 		RoleArn:         aws.String(roleArn),
 		PrincipalArn:    aws.String(principalArn),

@@ -4,3 +4,4 @@ lp-aws-saml
 dist/
 vendor/
 .idea/
+.vscode/

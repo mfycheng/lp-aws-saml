@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/antchfx/xmlquery"
@@ -12,8 +13,15 @@ import (
 )
 
 // SamlToken uses a LastPass login session to get a SAML token for assuming roles
-func SamlToken(session *http.Client, username, samlConfigID string) (string, error) {
-	idpLoginPath := lastPassServer + "/saml/launch/cfg/" + samlConfigID
+func SamlToken(session *http.Client, username, samlConfigID, samlGUUID string) (string, error) {
+	var idpLoginPath string
+	var redirectRequired bool
+	if samlConfigID != "" {
+		idpLoginPath = lastPassServer + "/saml/launch/cfg/" + samlConfigID
+	} else if samlGUUID != "" {
+		idpLoginPath = lastPassServer + "/saml/launch/nopassword?RelayState=/redirect?id=" + samlGUUID
+		redirectRequired = true
+	}
 
 	resp, err := session.Get(idpLoginPath)
 	if err != nil {
@@ -25,13 +33,86 @@ func SamlToken(session *http.Client, username, samlConfigID string) (string, err
 	}
 
 	action, fields := extractForm(resp.Body)
-
 	if action == "" {
 		// Error with account
 		return "", nil
 	}
 
+	if redirectRequired {
+		return handleRedirect(session, action, fields)
+	}
+
 	return fields["SAMLResponse"], nil
+}
+
+func handleRedirect(session *http.Client, action string, fields map[string]string) (string, error) {
+	resp, err := session.PostForm(action, url.Values{
+		"SAMLResponse": {fields["SAMLResponse"]},
+		"RelayState":   {fields["RelayState"]},
+	})
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	// Extra SAMLResponse
+	ast, err := html.Parse(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	var findForm func(*html.Node) *html.Node
+	findForm = func(n *html.Node) *html.Node {
+		if n == nil {
+			return nil
+		}
+
+		if n.Type == html.ElementNode {
+			switch n.Data {
+			case "html", "body":
+				return findForm(n.FirstChild)
+			case "form":
+				return n
+			}
+		}
+
+		return findForm(n.NextSibling)
+	}
+
+	var findInput func(*html.Node) *html.Node
+	findInput = func(n *html.Node) *html.Node {
+		if n == nil {
+			return nil
+		}
+
+		if n.Type == html.ElementNode {
+			switch n.Data {
+			case "div":
+				return findInput(n.FirstChild)
+			case "input":
+				return n
+			}
+		}
+
+		return findInput(n.NextSibling)
+	}
+
+	form := findForm(ast.FirstChild)
+	if form == nil {
+		return "", fmt.Errorf("failed to find form")
+	}
+	input := findInput(form.FirstChild)
+	if input == nil {
+		return "", fmt.Errorf("failed to find input")
+	}
+
+	for _, attr := range input.Attr {
+		if attr.Key == "value" {
+			return attr.Val, nil
+		}
+	}
+
+	return "", fmt.Errorf("input has no data")
 }
 
 // SamlRoles returns a list of roles a user can assume
@@ -68,7 +149,7 @@ func PromptForRole(roles [][]string) []string {
 	return roles[choice-1]
 }
 
-func extractForm(data io.ReadCloser) (string, map[string]string) {
+func extractForm(data io.Reader) (string, map[string]string) {
 	fields := make(map[string]string)
 	action := ""
 

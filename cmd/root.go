@@ -19,15 +19,16 @@ import (
 )
 
 type config struct {
-	Username string `toml:"username"`
+	Username     string `toml:"username"`
 	SAMLConfigID string `toml:"saml_config_id"`
-	Profile string `toml:"profile_name"`
-	Duration int `toml:"duration"`
-	Quiet bool `toml:"bool"`
+	SAMLGUUID    string `toml:"saml_guuid"`
+	Profile      string `toml:"profile_name"`
+	Duration     int    `toml:"duration"`
+	Quiet        bool   `toml:"bool"`
 }
 
 var (
-	quiet bool
+	quiet      bool
 	configPath string
 )
 
@@ -59,7 +60,7 @@ var rootCmd = &cobra.Command{
 	Use:   "lp-aws-saml",
 	Short: "Temporary Credentials for AWS CLI for LastPass SAML login",
 	Long:  "Get temporary AWS credentials when using LastPass as a SAML login for AWS",
-	Args: cobra.ExactArgs(1),
+	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		conf, err := getConfig(args[0])
 		if err != nil {
@@ -81,7 +82,7 @@ var rootCmd = &cobra.Command{
 		var assertion string
 		// Attempt to use stored cookies
 		for {
-			assertion, err = lastpassaws.SamlToken(session, conf.Username, conf.SAMLConfigID)
+			assertion, err = lastpassaws.SamlToken(session, conf.Username, conf.SAMLConfigID, conf.SAMLGUUID)
 			if err != nil {
 				log.Fatalf("Can't get the saml: %s", err)
 			}
@@ -113,7 +114,6 @@ var rootCmd = &cobra.Command{
 			return fmt.Errorf("No roles available for %s!\n", conf.Username)
 		}
 		role := lastpassaws.PromptForRole(roles)
-
 
 		response, err := lastpassaws.AssumeAWSRole(assertion, role[0], role[1], conf.Duration)
 		if err != nil {
@@ -149,4 +149,3 @@ func init() {
 	rootCmd.Flags().BoolVar(&quiet, "quiet", true, "Don't output debug info")
 	rootCmd.Flags().StringVar(&configPath, "config", "~/.aws/lp_config.toml", "Config path")
 }
-
