@@ -1,6 +1,6 @@
 package main
 
-import "github.com/springload/lp-aws-saml/cmd"
+import "github.com/mfycheng/lp-aws-saml/cmd"
 
 var version = "dev"
 

@@ -31,8 +31,8 @@ saml_config_id = "12345"
 ```
 $ lp-aws-saml
 Logging in with: email@example.com
-Password: 
-OTP: 
+Password:
+OTP:
 A new AWS CLI profile 'default' has been added.
 You may now invoke the aws CLI tool as follows:
 
@@ -50,11 +50,3 @@ aws_secret_access_key = {YOUR_SECRET_ACCESS_KEY}
 aws_session_token     = {YOUR_SESSION_TOKEN}
 ```
 
-### Installation
-
-For macOS you can install with brew:
-```sh
-brew install springload/tools/lp-aws-saml
-```
-
-There are `deb` and `rpm` packages and binaries for those who don't use packages. Just head up to the [releases](https://github.com/springload/lp-aws-saml/releases/latest) page.
