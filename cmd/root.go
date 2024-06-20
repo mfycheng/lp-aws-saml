@@ -13,7 +13,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/spf13/cobra"
-	"github.com/springload/lp-aws-saml/lastpassaws"
+	"github.com/mfycheng/lp-aws-saml/lastpassaws"
 	cookiejar "github.com/vinhjaxt/persistent-cookiejar"
 	"golang.org/x/crypto/ssh/terminal"
 )
